@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Byte Chef: encode and decode in the browser</title>
+<style>
+:root{
+  --ink:#000; --bg:#d9d9d2; --paper:#fff; --y:#ffe500; --m:#ff2e93; --b:#2b50ff; --g:#00d68f;
+  --mono:ui-monospace,"JetBrains Mono","Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f2ea; --bg:#161616; --paper:#222;}
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;padding:24px;font:15px/1.5 var(--mono);color:var(--ink);background:var(--bg);max-width:1280px;margin-inline:auto}
+button,select,textarea{font:inherit;color:inherit}
+header{border:4px solid var(--ink);background:var(--y);color:#000;padding:16px 20px;box-shadow:8px 8px 0 var(--ink);margin-bottom:28px;display:flex;flex-wrap:wrap;gap:8px 24px;align-items:baseline;justify-content:space-between}
+h1{margin:0;font-size:clamp(28px,5vw,48px);line-height:1;letter-spacing:-.04em;font-weight:900}
+header p{margin:0;max-width:46ch}
+main{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:28px;align-items:start}
+@media (max-width:860px){main{grid-template-columns:1fr}body{padding:14px}}
+section{border:4px solid var(--ink);background:var(--paper);box-shadow:8px 8px 0 var(--ink)}
+h2{margin:0;padding:8px 14px;font-size:16px;background:var(--ink);color:var(--bg);font-weight:700;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.body{padding:14px}
+.btn{border:3px solid var(--ink);background:var(--paper);color:var(--ink);padding:6px 10px;cursor:pointer;box-shadow:3px 3px 0 var(--ink);font-weight:700;transition:transform .08s,box-shadow .08s}
+.btn:hover{background:var(--y);color:#000}
+.btn:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+.btn:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{outline:4px solid var(--b);outline-offset:2px}
+.btn.sm{padding:1px 8px;box-shadow:2px 2px 0 var(--ink)}
+.btn.sm:active{transform:translate(2px,2px)}
+.btn.go{background:var(--g);color:#000}
+.label{display:block;font-weight:700;margin:0 0 6px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ops .btn{text-align:left}
+.group{margin-bottom:16px}
+#steps{display:flex;flex-direction:column;gap:12px;margin-top:6px}
+.step{border:3px solid var(--ink);background:var(--paper);box-shadow:4px 4px 0 var(--ink)}
+.step.err{background:var(--m);color:#000;animation:shake .25s}
+@keyframes shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+@media (prefers-reduced-motion:reduce){.step.err{animation:none}.btn{transition:none}}
+.sh{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 8px;border-bottom:3px solid var(--ink);background:var(--b);color:#fff}
+.step.err .sh{background:#000;color:#fff}
+.sh .acts{display:flex;gap:4px}
+.sh .btn{color:#000;background:#fff}
+.opts{padding:8px;display:flex;flex-direction:column;gap:6px}
+.opts:empty{display:none}
+.opts label{display:flex;justify-content:space-between;align-items:center;gap:8px}
+select{border:3px solid var(--ink);background:var(--paper);color:var(--ink);padding:2px 6px}
+.step.err select{background:#fff;color:#000}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--b)}
+.empty{border:3px dashed var(--ink);padding:16px;text-align:center}
+textarea{width:100%;min-height:200px;resize:vertical;border:3px solid var(--ink);background:var(--paper);color:var(--ink);padding:10px;box-shadow:inset 4px 4px 0 rgba(128,128,128,.25)}
+#output{background:var(--y);color:#000}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.bar .spacer{flex:1}
+.stat{font-weight:700}
+#msg{margin-top:12px;border:3px solid var(--ink);padding:8px 10px;background:var(--g);color:#000;font-weight:700}
+#msg.bad{background:var(--m)}
+#msg:empty{display:none}
+.right{display:flex;flex-direction:column;gap:28px}
+footer{margin-top:28px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Byte Chef</h1>
+  <p>Chain encode and decode steps. Everything runs in your browser; nothing is uploaded.</p>
+</header>
+
+<main>
+  <section aria-labelledby="rh">
+    <h2 id="rh">Recipe <button class="btn sm" id="clear-steps" type="button">Clear</button></h2>
+    <div class="body">
+      <div class="group">
+        <span class="label">Add a step</span>
+        <div class="grid ops" id="palette"></div>
+      </div>
+      <span class="label">Your steps (run top to bottom)</span>
+      <div id="steps" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <div class="right">
+    <section aria-labelledby="ih">
+      <h2 id="ih">Input <span class="stat" id="in-stat"></span></h2>
+      <div class="body">
+        <textarea id="input" spellcheck="false" placeholder="Type or paste text here" aria-label="Input"></textarea>
+        <div class="bar"><button class="btn" id="clear-in" type="button">Clear input</button></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="oh">
+      <h2 id="oh">Output <span class="stat" id="out-stat"></span></h2>
+      <div class="body">
+        <textarea id="output" readonly spellcheck="false" aria-label="Output"></textarea>
+        <div id="msg" role="status"></div>
+        <div class="bar">
+          <button class="btn go" id="copy" type="button">Copy output</button>
+          <button class="btn" id="swap" type="button">Use output as input</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var enc = new TextEncoder();
+  var DELIMS = {space:" ", comma:", ", newline:"\n", none:""};
+  var DELIM_CHOICES = [["space","Space"],["comma","Comma"],["newline","Newline"],["none","None"]];
+  var RADIX_CHOICES = [["10","Decimal"],["16","Hex"],["8","Octal"]];
+
+  function bytesToStr(b){var s="",i;for(i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return s;}
+  function strToBytes(s){var a=new Uint8Array(s.length),i;for(i=0;i<s.length;i++)a[i]=s.charCodeAt(i)&255;return a;}
+  function chunk(str,n){var out=[],i;for(i=0;i<str.length;i+=n)out.push(str.slice(i,i+n));return out;}
+
+  var OPS = {
+    toBase64:{label:"To Base64",opts:[{k:"url",t:"check",l:"URL-safe"}],
+      run:function(b,o){
+        var s=btoa(bytesToStr(b));
+        if(o.url)s=s.replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+        return strToBytes(s);
+      }},
+    fromBase64:{label:"From Base64",opts:[],
+      run:function(b){
+        var s=bytesToStr(b).replace(/\s+/g,"").replace(/-/g,"+").replace(/_/g,"/").replace(/=+$/,"");
+        if(/[^A-Za-z0-9+\/]/.test(s))throw new Error("Input has characters that are not valid Base64.");
+        if(s.length%4===1)throw new Error("Base64 length is invalid (a character is missing).");
+        while(s.length%4)s+="=";
+        return strToBytes(atob(s));
+      }},
+    toBinary:{label:"To Binary",opts:[{k:"d",t:"sel",l:"Separator",c:DELIM_CHOICES,def:"space"}],
+      run:function(b,o){
+        var out=[],i;for(i=0;i<b.length;i++)out.push(b[i].toString(2).padStart(8,"0"));
+        return enc.encode(out.join(DELIMS[o.d]));
+      }},
+    fromBinary:{label:"From Binary",opts:[],
+      run:function(b){
+        var s=bytesToStr(b);
+        if(/[^01\s,;:|_\-]/.test(s))throw new Error("Found characters other than 0, 1 and separators.");
+        var t=s.match(/[01]+/g)||[];
+        if(t.length===1&&t[0].length>8){
+          if(t[0].length%8)throw new Error("Bit count ("+t[0].length+") is not a multiple of 8.");
+          t=chunk(t[0],8);
+        }
+        return Uint8Array.from(t.map(function(x){
+          if(x.length>8)throw new Error("Group \""+x+"\" is longer than 8 bits.");
+          return parseInt(x,2);
+        }));
+      }},
+    toAscii:{label:"To ASCII codes",opts:[
+        {k:"r",t:"sel",l:"Base",c:RADIX_CHOICES,def:"10"},
+        {k:"d",t:"sel",l:"Separator",c:DELIM_CHOICES,def:"space"}],
+      run:function(b,o){
+        var r=+o.r,out=[],i,x;
+        for(i=0;i<b.length;i++){x=b[i].toString(r);if(r===16)x=x.padStart(2,"0");out.push(x);}
+        return enc.encode(out.join(DELIMS[o.d]));
+      }},
+    fromAscii:{label:"From ASCII codes",opts:[{k:"r",t:"sel",l:"Base",c:RADIX_CHOICES,def:"10"}],
+      run:function(b,o){
+        var r=+o.r,s=bytesToStr(b).replace(/0x/gi," ");
+        var bad={10:/[^0-9\s,;:|_\-]/,16:/[^0-9a-fA-F\s,;:|_\-]/,8:/[^0-7\s,;:|_\-]/}[r];
+        if(bad.test(s))throw new Error("Found characters that are not valid in base "+r+".");
+        var pat={10:/\d+/g,16:/[0-9a-fA-F]+/g,8:/[0-7]+/g}[r];
+        var t=s.match(pat)||[];
+        if(r===16&&t.length===1&&t[0].length>2)t=chunk(t[0],2);
+        return Uint8Array.from(t.map(function(x){
+          var n=parseInt(x,r);
+          if(n>255)throw new Error("Code "+x+" is above 255, which is not a single byte.");
+          return n;
+        }));
+      }}
+  };
+
+  var $ = function(id){return document.getElementById(id);};
+  var steps = [], input=$("input"), output=$("output"), msg=$("msg");
+
+  function newStep(op){
+    var o={};OPS[op].opts.forEach(function(x){o[x.k]=x.t==="check"?false:x.def;});
+    return {op:op,opts:o};
+  }
+
+  function optHtml(s,i){
+    return OPS[s.op].opts.map(function(x){
+      var id="o"+i+x.k;
+      if(x.t==="check")return '<label for="'+id+'"><span>'+x.l+'</span><input type="checkbox" id="'+id+'" data-k="'+x.k+'"'+(s.opts[x.k]?" checked":"")+'></label>';
+      return '<label for="'+id+'"><span>'+x.l+'</span><select id="'+id+'" data-k="'+x.k+'">'+x.c.map(function(c){
+        return '<option value="'+c[0]+'"'+(String(s.opts[x.k])===c[0]?" selected":"")+'>'+c[1]+'</option>';
+      }).join("")+'</select></label>';
+    }).join("");
+  }
+
+  function renderSteps(){
+    $("steps").innerHTML = steps.length ? steps.map(function(s,i){
+      return '<div class="step" data-i="'+i+'"><div class="sh"><b>'+(i+1)+'. '+OPS[s.op].label+'</b><span class="acts">'+
+        '<button class="btn sm" data-a="up" type="button" aria-label="Move up"'+(i===0?" disabled":"")+'>&uarr;</button>'+
+        '<button class="btn sm" data-a="down" type="button" aria-label="Move down"'+(i===steps.length-1?" disabled":"")+'>&darr;</button>'+
+        '<button class="btn sm" data-a="del" type="button" aria-label="Remove step">&times;</button></span></div>'+
+        '<div class="opts">'+optHtml(s,i)+'</div></div>';
+    }).join("") : '<div class="empty">No steps yet. Add one from the list above.</div>';
+    bake();
+  }
+
+  function bake(){
+    var els=document.querySelectorAll(".step"),i,b=enc.encode(input.value),failed=-1,err="";
+    els.forEach(function(e){e.classList.remove("err");});
+    $("in-stat").textContent=b.length+" bytes";
+    for(i=0;i<steps.length;i++){
+      try{b=OPS[steps[i].op].run(b,steps[i].opts);}
+      catch(e){failed=i;err=e.message;break;}
+    }
+    if(failed>=0){
+      output.value="";
+      els[failed]&&els[failed].classList.add("err");
+      msg.className="bad";
+      msg.textContent="Step "+(failed+1)+" ("+OPS[steps[failed].op].label+") failed: "+err;
+      $("out-stat").textContent="";
+      return;
+    }
+    var text=new TextDecoder("utf-8").decode(b);
+    output.value=steps.length?text:input.value;
+    $("out-stat").textContent=(steps.length?b.length:enc.encode(input.value).length)+" bytes";
+    if(steps.length&&text.indexOf("\uFFFD")>-1){
+      msg.className="bad";
+      msg.textContent="Output is not valid UTF-8 text, so some bytes show as \uFFFD. Add \"To ASCII codes\" (Hex) to see the raw bytes.";
+    }else{msg.className="";msg.textContent="";}
+  }
+
+  // palette + presets
+  $("palette").innerHTML=Object.keys(OPS).map(function(k){return '<button class="btn" data-op="'+k+'" type="button">+ '+OPS[k].label+'</button>';}).join("");
+
+  $("palette").addEventListener("click",function(e){
+    var b=e.target.closest("[data-op]");if(!b)return;
+    steps.push(newStep(b.dataset.op));renderSteps();
+  });
+  $("steps").addEventListener("click",function(e){
+    var b=e.target.closest("[data-a]");if(!b)return;
+    var i=+b.closest(".step").dataset.i,a=b.dataset.a,t;
+    if(a==="del")steps.splice(i,1);
+    else if(a==="up"&&i>0){t=steps[i-1];steps[i-1]=steps[i];steps[i]=t;}
+    else if(a==="down"&&i<steps.length-1){t=steps[i+1];steps[i+1]=steps[i];steps[i]=t;}
+    renderSteps();
+  });
+  $("steps").addEventListener("change",function(e){
+    var k=e.target.dataset.k;if(!k)return;
+    var s=steps[+e.target.closest(".step").dataset.i];
+    s.opts[k]=e.target.type==="checkbox"?e.target.checked:e.target.value;
+    bake();
+  });
+  $("clear-steps").addEventListener("click",function(){steps=[];renderSteps();});
+  $("clear-in").addEventListener("click",function(){input.value="";bake();input.focus();});
+  input.addEventListener("input",bake);
+
+  $("swap").addEventListener("click",function(){
+    if(!output.value)return;
+    input.value=output.value;bake();input.focus();
+  });
+  function legacyCopy(text){
+    var ta=document.createElement("textarea");
+    ta.value=text;ta.setAttribute("readonly","");
+    ta.style.cssText="position:fixed;top:0;left:0;opacity:0;";
+    document.body.appendChild(ta);ta.focus();ta.select();ta.setSelectionRange(0,text.length);
+    var ok=false;
+    try{ok=document.execCommand("copy");}catch(e){}
+    document.body.removeChild(ta);
+    return ok;
+  }
+  $("copy").addEventListener("click",function(){
+    var btn=$("copy"),text=output.value;
+    function flash(label){btn.textContent=label;setTimeout(function(){btn.textContent="Copy output";},1500);}
+    function fallback(){
+      if(legacyCopy(text))flash("Copied");
+      else{output.focus();output.select();flash("Press Ctrl+C");}
+    }
+    if(!text){flash("Nothing to copy");return;}
+    if(navigator.clipboard&&window.isSecureContext){
+      navigator.clipboard.writeText(text).then(function(){flash("Copied");},fallback);
+    }else fallback();
+  });
+
+  input.value="Hello, Byte Chef!";
+  steps=[newStep("toBase64")];
+  renderSteps();
+})();
+</script>
+</body>
+</html>
